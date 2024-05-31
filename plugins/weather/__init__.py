@@ -5,7 +5,9 @@ from jieba import posseg
 from services.log import logger
 from nonebot.params import RegexGroup
 from typing import Tuple, Any
-
+import json
+from configs.path_config import TEXT_PATH
+weather_descriptions = TEXT_PATH / "weather_descriptions.json"
 
 __zx_plugin_name__ = "天气查询"
 __plugin_usage__ = """
@@ -28,27 +30,42 @@ __plugin_settings__ = {
 
 
 weather = on_regex(r".{0,10}?(.*)的?天气.{0,10}", priority=5, block=True)
-
+def load_weather_descriptions(file_path):
+    with open(file_path, "r", encoding="utf-8") as file:
+        return json.load(file)
 
 @weather.handle()
 async def _(event: MessageEvent, reg_group: Tuple[Any, ...] = RegexGroup()):
     msg = reg_group[0]
+    
+    weather_descriptions_data = load_weather_descriptions(weather_descriptions)
+
+    if msg in weather_descriptions_data:
+        await weather.finish(weather_descriptions_data[msg])
+        return
+
     if msg and msg[-1] != "市":
         msg += "市"
+
+    if msg in weather_descriptions_data:
+        await weather.finish(weather_descriptions_data[msg])
+        return
+
     city = ""
     if msg:
         city_list = get_city_list()
-        for word in posseg.lcut(msg):
-            if word.flag == "ns" or word.word[:-1] in city_list:
+        words = posseg.lcut(msg)
+        found = False
+        for word in words:
+            key = word.word
+            if key in weather_descriptions_data:
+                await weather.finish(weather_descriptions_data[key])
+                found = True
+                break
+            if not found and (word.flag == "ns" or word.word[:-1] in city_list):
                 city = str(word.word).strip()
                 break
-            if word.word == "火星":
-                await weather.finish(
-                    "没想到你个小呆子还真的想看火星天气！\n火星大气中含有95％的二氧化碳,气压低，加之极度的干燥，"
-                    "就阻止了水的形成积聚。这意味着火星几乎没有云,冰层覆盖了火星的两极，它们的融化和冻结受到火星与太"
-                    "阳远近距离的影响,它产生了强大的尘埃云，阻挡了太阳光，使冰层的融化慢下来。\n所以说火星天气太恶劣了，"
-                    "去过一次就不想再去第二次了"
-                )
+    
     if city:
         city_weather = await get_weather_of_city(city)
         logger.info(
@@ -56,3 +73,4 @@ async def _(event: MessageEvent, reg_group: Tuple[Any, ...] = RegexGroup()):
             f"查询天气:" + city
         )
         await weather.finish(city_weather)
+
